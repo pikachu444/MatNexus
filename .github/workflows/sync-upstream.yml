@@ -1,0 +1,36 @@
+name: Sync upstream main
+on:
+  schedule:
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.repository == 'pikachu444/MatNexus'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fast-forward main from the original repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          upstream_sha=$(gh api repos/4leaf321-nox321/MatNexus/git/ref/heads/main --jq .object.sha)
+          fork_sha=$(gh api "repos/$FORK_REPO/git/ref/heads/main" --jq .object.sha)
+          if [ "$fork_sha" != "$upstream_sha" ]; then
+            relation=$(gh api "repos/$FORK_REPO/compare/$fork_sha...$upstream_sha" --jq .status)
+            if [ "$relation" != "ahead" ]; then
+              echo "::error::Fork main is not an ancestor of upstream main. No changes made."
+              exit 1
+            fi
+            gh api --method PATCH "repos/$FORK_REPO/git/refs/heads/main" \
+              -f sha="$upstream_sha" -F force=false --silent
+          fi
+          actual=$(gh api "repos/$FORK_REPO/git/ref/heads/main" --jq .object.sha)
+          test "$actual" = "$upstream_sha"
+          echo "Synced main to $actual" >> "$GITHUB_STEP_SUMMARY"
