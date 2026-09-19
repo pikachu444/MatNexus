@@ -1,0 +1,65 @@
+name: Publish current access URL
+on:
+  workflow_dispatch:
+    inputs:
+      public_url:
+        description: Current Quick Tunnel HTTPS URL
+        required: false
+        type: string
+      state:
+        description: Tunnel state
+        required: true
+        default: online
+        type: choice
+        options: [online, offline]
+permissions:
+  issues: write
+concurrency:
+  group: matnexus-access-info
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'pikachu444/MatNexus'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Update permanent issue and notify owner on address changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_URL: ${{ inputs.public_url }}
+          ACCESS_STATE: ${{ inputs.state }}
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.request
+          from datetime import datetime, timezone, timedelta
+          url = os.environ.get('PUBLIC_URL', '').strip()
+          state = os.environ['ACCESS_STATE']
+          if state not in ('online', 'offline'):
+              raise SystemExit('Invalid state')
+          if state == 'online' and not re.fullmatch(r'https://[a-z0-9-]+\.trycloudflare\.com', url):
+              raise SystemExit('Invalid Quick Tunnel URL')
+          base = 'https://api.github.com/repos/pikachu444/MatNexus/issues/1'
+          def api(method, endpoint, payload=None):
+              req = urllib.request.Request(endpoint, method=method,
+                  data=None if payload is None else json.dumps(payload).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+          previous = api('GET', base).get('body') or ''
+          marker = f'<!-- matnexus-access:{state}:{url if state == "online" else ""} -->'
+          if marker in previous:
+              print('Already published; no duplicate notification.')
+              raise SystemExit(0)
+          stamp = datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M KST')
+          if state == 'online':
+              body = f'## MatNexus 최신 접속 주소\n\n### [{url}]({url})\n\n확인 시각: {stamp}\n\n이 Issue 링크를 즐겨찾기하면 주소가 바뀌어도 여기서 최신 주소를 확인할 수 있습니다. PC와 서버, 터널이 켜져 있어야 접속됩니다. 로그인 정보는 게시하지 않습니다.\n\n{marker}'
+              comment = f'@pikachu444 MatNexus 접속 주소가 갱신됐습니다.\n\n[{url}]({url})\n\n확인 시각: {stamp}'
+          else:
+              body = f'## MatNexus 외부 접속\n\n현재 상태: 터널 종료.\n\n확인 시각: {stamp}\n\n다시 실행되면 이 페이지에 새 주소가 자동으로 표시됩니다.\n\n{marker}'
+              comment = None
+          api('PATCH', base, {'body': body})
+          if comment:
+              api('POST', base + '/comments', {'body': comment})
+          print('Published https://github.com/pikachu444/MatNexus/issues/1')
+          PY
