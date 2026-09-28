@@ -80,7 +80,7 @@ assert plugin.kind == "processing"
 assert plugin.order == 15
 assert plugin.version == "2"
 assert plugin.params[0].choices == (
-    "terminal_loss_auto_v2", "manual_end_strain_v1", "terminal_loss_auto_v1", "manual_end_v1"
+    "terminal_loss_auto_v2", "manual_end_strain_v1"
 )
 """
     completed = subprocess.run(
@@ -94,9 +94,22 @@ assert plugin.params[0].choices == (
     plugin = registry.get("tensile.terminal_domain")
     params = {item.name: item for item in plugin.params}
     assert params["policy"].default == DEFAULT_POLICY
-    assert "공칭변형률 0.50" in (params["policy"].help or "")
-    assert params["end_index"].when == {"policy": (MANUAL_POLICY,)}
+    assert params["policy"].choices == ("terminal_loss_auto_v2", "manual_end_strain_v1")
+    assert params["policy"].choice_labels == {
+        "terminal_loss_auto_v2": "자동 (변형률 제한·급락 감지)",
+        "manual_end_strain_v1": "수동 (변형률 제한)",
+    }
+    assert (
+        "공칭변형률 제한 0.50 (50%)"
+        in (params["policy"].choice_help or {})["terminal_loss_auto_v2"]
+    )
+    assert params["end_strain"].default == 0.50
+    assert params["end_strain"].label == "변형률 제한"
+    assert params["end_strain"].label in params["policy"].choice_labels["manual_end_strain_v1"]
+    assert "end_index" not in params
     assert params["end_strain"].when == {"policy": ("manual_end_strain_v1",)}
+    produced = {item.key: item.label for item in plugin.makes_values}
+    assert produced["terminal_domain_v2_end_strain_bound"] == "적용한 변형률 제한"
     assert params["time"].default == "time"
     assert params["time"].required is False
 

@@ -81,62 +81,31 @@ register(
             choices=(
                 terminal_domain_v2.AUTO_POLICY,
                 terminal_domain_v2.MANUAL_STRAIN_POLICY,
-                terminal_domain.AUTO_POLICY,
-                terminal_domain.MANUAL_POLICY,
             ),
             default=terminal_domain_v2.AUTO_POLICY,
-            choice_labels={
-                terminal_domain_v2.AUTO_POLICY: "자동 (급락 감지·변형률 제한)",
-                terminal_domain_v2.MANUAL_STRAIN_POLICY: "수동 (변형률 상한 지정)",
-                terminal_domain.AUTO_POLICY: "자동 (기존 급락 기준, 이전 정책)",
-                terminal_domain.MANUAL_POLICY: "수동 (끝 행 번호 지정, 이전 정책)",
-            },
+            choice_labels=terminal_domain_v2.POLICY_LABELS,
             choice_help={
                 terminal_domain_v2.AUTO_POLICY: (
-                    "공칭변형률 0.50 (50%)를 고정 상한으로 둡니다. "
-                    "급락 뒤 하중이 낮게 이어지고 "
-                    "이전 손실의 절반을 넘게 회복하지 않아야 급락 직전 행을 끝으로 씁니다. "
-                    "회복 기준을 넘으면 그 급락 지점은 선택하지 않습니다. "
-                    "50%는 보편적인 파단 기준이 아닙니다."
+                    "공칭변형률 제한 0.50 (50%)으로 사용 범위를 정합니다. 그 안의 급락 기준을 "
+                    "충족하면 급락 직전까지 사용합니다. 회복 여부는 제한 뒤를 포함한 원자료 "
+                    "전체에서 확인합니다. 50%는 보편적인 파단 기준이 아닙니다."
                 ),
                 terminal_domain_v2.MANUAL_STRAIN_POLICY: (
-                    "실험 치수로 계산한 공칭변형률의 상한을 지정합니다. 0.50은 50%, "
-                    "0.80은 80%입니다. 상한과 같은 행은 포함하고 처음 상한을 넘은 행부터 "
-                    "뒤는 제외하며, 보간하지 않습니다."
-                ),
-                terminal_domain.AUTO_POLICY: (
-                    "저장된 이전 자동 recipe 재실행용입니다. 시험 순서의 마지막 10%에서 "
-                    "기존 급락 기준을 적용합니다."
-                ),
-                terminal_domain.MANUAL_POLICY: (
-                    "저장된 이전 수동 recipe 재실행용입니다. 현재 입력 데이터에서 0부터 세는 "
-                    "끝 행 번호를 지정합니다."
+                    "공칭변형률 제한은 기본 0.50 (50%)이며 변경할 수 있고(예: 0.80은 80%), "
+                    "처음 제한을 넘는 행부터 뒤를 제외하며 수동 방식에는 자동 급락 감지를 "
+                    "적용하지 않습니다."
                 ),
             },
             help=(
-                "자동은 공칭변형률 0.50 (50%)를 고정 상한으로 두고 "
-                "급락 뒤 하중이 낮게 이어지는지, "
-                "이전 손실의 절반을 넘게 회복하는지 확인합니다. "
-                "수동은 입력한 공칭변형률 상한을 "
-                "사용합니다. 50%는 보편적인 파단 기준이 아닙니다. 이전 정책은 저장 recipe "
-                "재실행용입니다."
-            ),
-        ),
-        ParamSpec(
-            name="end_index",
-            label="끝 행 번호",
-            type="int",
-            required=True,
-            when={"policy": (terminal_domain.MANUAL_POLICY,)},
-            help=(
-                "이전 수동 정책에서만 사용합니다. 현재 입력 데이터에서 "
-                "0부터 세는 행 번호입니다. "
-                "해당 행까지 포함하고 그 뒤는 모두 제외합니다."
+                "자동은 공칭변형률 제한 0.50 (50%)으로 범위를 정하고 "
+                "그 안의 급락을 확인합니다. 수동은 기본 0.50인 공칭변형률 "
+                "제한을 직접 지정합니다. 수동 방식에는 자동 급락 감지를 "
+                "적용하지 않습니다. 50%는 보편적인 파단 기준이 아닙니다."
             ),
         ),
         ParamSpec(
             name="end_strain",
-            label="변형률 상한",
+            label="변형률 제한",
             type="float",
             unit="1",
             dimension="strain",
@@ -144,9 +113,9 @@ register(
             required=True,
             when={"policy": (terminal_domain_v2.MANUAL_STRAIN_POLICY,)},
             help=(
-                "실험 치수로 계산한 공칭변형률의 상한입니다. 0.50은 50%, 0.80은 80%입니다. "
-                "상한과 같은 행은 포함하고, 처음 상한을 넘은 행부터 뒤는 모두 제외합니다. "
-                "사이의 값은 보간하지 않습니다."
+                "실험 치수로 계산한 공칭변형률 제한입니다. 기본값은 0.50 (50%)이며 변경할 수 "
+                "있습니다. 처음 제한을 넘는 행부터 뒤는 제외합니다. "
+                "예를 들어 0.80은 80%입니다. 수동 방식에는 자동 급락 감지를 적용하지 않습니다."
             ),
         ),
         ParamSpec(
@@ -157,6 +126,7 @@ register(
             default=terminal_domain.DEFAULT_STRAIN,
             unit="1",
             dimension="strain",
+            help="앞 단계 공칭 응력-변형률 계산에서 생성한 공칭변형률 열입니다.",
         ),
         ParamSpec(
             name="stress",
@@ -165,6 +135,7 @@ register(
             role="column",
             default=terminal_domain.DEFAULT_STRESS,
             unit="Pa",
+            help="앞 단계 공칭 응력-변형률 계산에서 생성한 공칭응력 열입니다.",
         ),
         ParamSpec(
             name="time",
@@ -215,7 +186,7 @@ register(
             si_unit="1",
             help=(
                 "0은 제외 없음, 1은 자동 급락 제외, 2는 수동 끝 지정, "
-                "3은 자동 변형률 상한입니다."
+                "3은 자동 변형률 제한입니다."
             ),
         ),
         Produced(
@@ -237,13 +208,16 @@ register(
             key="terminal_domain_v2_end_reason_code",
             label="끝 위치를 정한 이유 코드",
             si_unit="1",
-            help="0은 제외 없음, 1은 급락 기준 적용, 2는 자동 상한, 3은 수동 상한입니다.",
+            help=(
+                "0은 제외 없음, 1은 급락 기준 적용, 2는 자동 변형률 제한, "
+                "3은 수동 변형률 제한입니다."
+            ),
         ),
         Produced(
             key="terminal_domain_v2_end_strain_bound",
-            label="적용한 변형률 상한",
+            label="적용한 변형률 제한",
             si_unit="1",
-            help="자동은 고정 0.50, 수동은 입력한 상한입니다.",
+            help="자동은 고정 0.50, 수동은 입력한 변형률 제한입니다.",
         ),
         Produced(
             key="terminal_domain_v2_loss_candidate_index",

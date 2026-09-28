@@ -15,6 +15,10 @@ AUTO_POLICY = "terminal_loss_auto_v2"
 MANUAL_STRAIN_POLICY = "manual_end_strain_v1"
 DEFAULT_END_STRAIN = 0.50
 POLICIES = (AUTO_POLICY, MANUAL_STRAIN_POLICY)
+POLICY_LABELS = {
+    AUTO_POLICY: "자동 (변형률 제한·급락 감지)",
+    MANUAL_STRAIN_POLICY: "수동 (변형률 제한)",
+}
 _KNOWN_OPTIONS = frozenset(
     {"policy", "strain", "stress", "time", "end_index", "end_strain", *legacy.FIXED_OPTIONS}
 )
@@ -313,7 +317,7 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
     cap_end = _cap_end(strain, bound)
     if cap_end < 1:
         raise ProcessingError(
-            f"공칭변형률 상한 {bound:.6g} 이하에서 처리할 데이터가 2개 미만입니다."
+            f"공칭변형률 제한 {bound:.6g} 이하에서 처리할 데이터가 2개 미만입니다."
         )
     progress, basis, fallback_reason = legacy._progress(
         arrays, frame, strain, strain_name, time_name
@@ -335,39 +339,36 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
         elif cap_end < n - 1:
             decision_code = 3.0
             reason_code = 2.0
-            reason = "자동 정책의 변형률 상한을 적용했습니다."
+            reason = "자동 정책의 변형률 제한을 적용했습니다."
         else:
             decision_code = 0.0
             reason_code = 0.0
-            reason = "급락 기준이나 변형률 상한에 따른 제외가 없습니다."
+            reason = "급락 기준이나 변형률 제한에 따른 제외가 없습니다."
     else:
         end_index = cap_end
         decision_code = 2.0
         reason_code = 3.0
-        reason = "지정한 변형률 상한을 적용했습니다."
+        reason = "지정한 변형률 제한을 적용했습니다."
 
     selected = frame if end_index == n - 1 else frame.select(np.arange(end_index + 1))
     removed = n - end_index - 1
-    policy_label = {
-        AUTO_POLICY: "자동 (급락 감지·변형률 제한)",
-        MANUAL_STRAIN_POLICY: "수동 (변형률 상한 지정)",
-    }[policy]
+    policy_label = POLICY_LABELS[policy]
     notes: list[str] = [f"처리 방식: {policy_label}.", *progress_notes]
     if policy == AUTO_POLICY:
         notes.append(
-            f"자동 정책의 변형률 상한은 {bound:.6g} (50%)입니다. "
+            f"자동 정책의 변형률 제한은 {bound:.6g} (50%)입니다. "
             "50%는 보편적인 파단 기준이 아닙니다."
         )
         if automatic_notes:
             notes.extend(automatic_notes)
         if loss_end is not None and loss_end > cap_end:
             notes.append(
-                f"급락 후보 {loss_end}번 행의 확인 구간은 변형률 상한 뒤에 있어 "
+                f"급락 후보 {loss_end}번 행의 확인 구간은 변형률 제한 뒤에 있어 "
                 "끝 위치에 반영되지 않았습니다."
             )
         if reason_code == 2.0:
             notes.append(
-                f"변형률 상한을 처음 넘은 {cap_end + 1}번 행부터 "
+                f"변형률 제한을 처음 넘은 {cap_end + 1}번 행부터 "
                 f"뒤의 데이터 {removed}개를 제외했습니다."
             )
         elif reason_code == 0.0:
@@ -382,13 +383,15 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
                 "시험 순서의 마지막 10%에서 첫 응력 "
                 f"{stress[first_late]:.6g} Pa 에서 마지막 응력 {stress[-1]:.6g} Pa 까지 "
                 "전체 최대 응력의 10% 이상 낮아졌습니다. 완만한 감소는 급락 기준에 미치지 "
-                "않았습니다. 변형률 상한은 별도로 적용합니다."
+                "않았습니다. 변형률 제한은 별도로 적용합니다."
             )
     else:
-        notes.append(f"지정한 변형률 상한은 {bound:.6g}입니다.")
+        notes.append(
+            f"수동 변형률 제한은 {bound:.6g}이며 자동 급락 감지는 적용하지 않았습니다."
+        )
         if cap_end < n - 1:
             notes.append(
-                f"변형률 상한을 처음 넘은 {cap_end + 1}번 행부터 "
+                f"변형률 제한을 처음 넘은 {cap_end + 1}번 행부터 "
                 f"뒤의 데이터 {removed}개를 제외했습니다."
             )
         else:
@@ -396,7 +399,7 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
     notes.append(f"0번부터 {end_index}번 행까지 사용했습니다. {reason}")
     if policy == AUTO_POLICY:
         notes.append(
-            "하중 회복 여부는 변형률 상한 뒤를 포함해 전체 입력 데이터에서 확인했습니다. "
+            "하중 회복 여부는 변형률 제한 뒤를 포함해 전체 입력 데이터에서 확인했습니다. "
             "이 처리는 사용할 데이터 범위를 정하며 네킹이나 파단을 판정하지 않습니다."
         )
     else:
@@ -437,7 +440,7 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
             reason_code,
             "1",
         ),
-        Scalar("terminal_domain_v2_end_strain_bound", "적용한 변형률 상한", float(bound), "1"),
+        Scalar("terminal_domain_v2_end_strain_bound", "적용한 변형률 제한", float(bound), "1"),
         Scalar(
             "terminal_domain_v2_loss_candidate_index",
             "급락 직전 행 번호",

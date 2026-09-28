@@ -14,8 +14,6 @@ processing.load_builtin()
 
 AUTO_POLICY = "terminal_loss_auto_v2"
 MANUAL_POLICY = "manual_end_strain_v1"
-LEGACY_AUTO_POLICY = "terminal_loss_auto_v1"
-LEGACY_MANUAL_POLICY = "manual_end_v1"
 
 
 def _frame(
@@ -70,13 +68,18 @@ def test_v2_registration_is_loader_visible_and_between_nominal_and_sort() -> Non
     assert params["policy"].choices == (
         AUTO_POLICY,
         MANUAL_POLICY,
-        LEGACY_AUTO_POLICY,
-        LEGACY_MANUAL_POLICY,
     )
-    assert "이전 정책" in params["policy"].choice_labels[LEGACY_AUTO_POLICY]
+    assert params["policy"].choice_labels == {
+        AUTO_POLICY: "자동 (변형률 제한·급락 감지)",
+        MANUAL_POLICY: "수동 (변형률 제한)",
+    }
     assert params["end_strain"].default == 0.50
+    assert params["end_strain"].label == "변형률 제한"
+    assert params["end_strain"].label in params["policy"].choice_labels[MANUAL_POLICY]
     assert params["end_strain"].when == {"policy": (MANUAL_POLICY,)}
-    assert params["end_index"].when == {"policy": (LEGACY_MANUAL_POLICY,)}
+    assert "end_index" not in params
+    produced = {item.key: item.label for item in plugin.makes_values}
+    assert produced["terminal_domain_v2_end_strain_bound"] == "적용한 변형률 제한"
 
 
 def test_default_auto_keeps_exact_bound_and_never_reenters_after_first_exceedance() -> None:
