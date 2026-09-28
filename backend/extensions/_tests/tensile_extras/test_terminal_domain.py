@@ -10,13 +10,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from matcore import processing, registry
+from matcore import extensions, processing, registry
 from matcore.processing import Frame, ProcessingError, Step
 
-EXTENSIONS = Path(__file__).resolve().parents[1]
+EXTENSIONS = Path(__file__).resolve().parents[2]
+extensions.load(EXTENSIONS)
 processing.load_builtin()
 AUTO_POLICY = "terminal_loss_auto_v1"
 MANUAL_POLICY = "manual_end_v1"
+DEFAULT_POLICY = "terminal_loss_auto_v2"
 
 
 def _frame(
@@ -52,8 +54,10 @@ def _frame(
 
 
 def _run(frame: Frame, options: dict[str, object] | None = None) -> processing.PipelineResult:
+    resolved_options = dict(options or {})
+    resolved_options.setdefault("policy", AUTO_POLICY)
     return processing.apply(
-        [Step("tensile.terminal_domain", options or {})],
+        [Step("tensile.terminal_domain", resolved_options)],
         frame,
     )
 
@@ -73,9 +77,11 @@ assert not extensions.failures(report), report
 processing.load_builtin()
 plugin = registry.get("tensile.terminal_domain")
 assert plugin.kind == "processing"
-assert plugin.order == 20
-assert plugin.version == "1"
-assert plugin.params[0].choices == ("terminal_loss_auto_v1", "manual_end_v1")
+assert plugin.order == 15
+assert plugin.version == "2"
+assert plugin.params[0].choices == (
+    "terminal_loss_auto_v2", "manual_end_strain_v1", "terminal_loss_auto_v1", "manual_end_v1"
+)
 """
     completed = subprocess.run(
         [sys.executable, "-c", loader_check, str(EXTENSIONS)],
@@ -87,9 +93,12 @@ assert plugin.params[0].choices == ("terminal_loss_auto_v1", "manual_end_v1")
     assert completed.returncode == 0, completed.stderr or completed.stdout
     plugin = registry.get("tensile.terminal_domain")
     params = {item.name: item for item in plugin.params}
-    assert params["policy"].default == AUTO_POLICY
-    assert "자동은 마지막 10%" in (params["policy"].help or "")
+    assert params["policy"].default == DEFAULT_POLICY
+    assert "공칭변형률 0.50" in (params["policy"].help or "")
     assert params["end_index"].when == {"policy": (MANUAL_POLICY,)}
+    assert params["end_strain"].when == {"policy": ("manual_end_strain_v1",)}
+    assert params["time"].default == "time"
+    assert params["time"].required is False
 
 
 def test_abrupt_terminal_loss_selects_prefix_and_preserves_raw_frame() -> None:
@@ -213,7 +222,7 @@ def test_invalid_or_unimplemented_policy_is_rejected() -> None:
     options_list: tuple[dict[str, object], ...] = (
         {"policy": MANUAL_POLICY},
         {"policy": MANUAL_POLICY, "end_index": 0},
-        {"policy": "terminal_loss_auto_v2"},
+        {"policy": "unimplemented_terminal_policy"},
     )
     for options in options_list:
         with pytest.raises(ProcessingError):

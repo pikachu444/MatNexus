@@ -1,0 +1,173 @@
+{
+  "schema": "matnexus.terminal_v2_validation_compact/1",
+  "source_summary": "terminal-v2-summary.json",
+  "status": "completed",
+  "case_count": 198,
+  "row_count": 177541,
+  "implementation": "backend (fork PR #46)",
+  "policies": {
+    "legacy": "terminal_loss_auto_v1",
+    "new": "terminal_loss_auto_v2",
+    "manual": "manual_end_strain_v1",
+    "new_default_cap": 0.5
+  },
+  "execution_counts": {
+    "engineering_batch": 198,
+    "terminal_v1_batch": 198,
+    "terminal_v2_batch": 198,
+    "manual_representative": 6,
+    "recipe_replay_representative_engineering": 3,
+    "recipe_replay_representative_terminal_v2": 3
+  },
+  "classification_counts": {
+    "policy_difference": 47,
+    "numerical_match": 151
+  },
+  "classification_by_family": {
+    "metal": {
+      "numerical_match": 107,
+      "policy_difference": 41
+    },
+    "plastic": {
+      "policy_difference": 6,
+      "numerical_match": 44
+    }
+  },
+  "classification_by_material_group": {
+    "1018": {
+      "numerical_match": 24,
+      "policy_difference": 1
+    },
+    "2024": {
+      "numerical_match": 24
+    },
+    "304": {
+      "policy_difference": 19,
+      "numerical_match": 5
+    },
+    "304l": {
+      "policy_difference": 21,
+      "numerical_match": 6
+    },
+    "7075": {
+      "numerical_match": 23
+    },
+    "PC": {
+      "policy_difference": 5
+    },
+    "PLA": {
+      "numerical_match": 4
+    },
+    "PMMA": {
+      "numerical_match": 40,
+      "policy_difference": 1
+    },
+    "dp1180": {
+      "numerical_match": 12
+    },
+    "dp980": {
+      "numerical_match": 3
+    },
+    "s355": {
+      "numerical_match": 10
+    }
+  },
+  "v2_end_reason_counts": {
+    "cap": 47,
+    "keep": 37,
+    "loss": 114
+  },
+  "invariant_error_count": 0,
+  "expected_hold_count": 0,
+  "manual_end_strain_status_counts": {
+    "prefix_match": 6
+  },
+  "manual_end_strain_by_limit": {
+    "0.30": {
+      "prefix_match": 3
+    },
+    "0.80": {
+      "prefix_match": 3
+    }
+  },
+  "recipe_replay_status_counts": {
+    "identical": 3
+  },
+  "recipe_replay_cases": [
+    {
+      "index": "4",
+      "status": "identical"
+    },
+    {
+      "index": "118",
+      "status": "identical"
+    },
+    {
+      "index": "23",
+      "status": "identical"
+    }
+  ],
+  "largest_policy_differences": [
+    {
+      "index": 2,
+      "case_id": "oxford_pc_fig5_50mm_min_test3",
+      "family": "plastic",
+      "material_group": "PC",
+      "v1_end_index": 2178,
+      "v2_end_index": 960,
+      "removed_extra_rows_vs_v1": 1218,
+      "v1_minus_v2_end_strain": 0.63437875
+    },
+    {
+      "index": 3,
+      "case_id": "oxford_pc_fig5_5mm_min_test1",
+      "family": "plastic",
+      "material_group": "PC",
+      "v1_end_index": 2178,
+      "v2_end_index": 960,
+      "removed_extra_rows_vs_v1": 1218,
+      "v1_minus_v2_end_strain": 0.63437875
+    },
+    {
+      "index": 4,
+      "case_id": "oxford_pc_fig5_5mm_min_test2",
+      "family": "plastic",
+      "material_group": "PC",
+      "v1_end_index": 2015,
+      "v2_end_index": 960,
+      "removed_extra_rows_vs_v1": 1055,
+      "v1_minus_v2_end_strain": 0.54948
+    },
+    {
+      "index": 0,
+      "case_id": "oxford_pc_fig5_50mm_min_test1",
+      "family": "plastic",
+      "material_group": "PC",
+      "v1_end_index": 1066,
+      "v2_end_index": 485,
+      "removed_extra_rows_vs_v1": 581,
+      "v1_minus_v2_end_strain": 0.60521125
+    },
+    {
+      "index": 1,
+      "case_id": "oxford_pc_fig5_50mm_min_test2",
+      "family": "plastic",
+      "material_group": "PC",
+      "v1_end_index": 1035,
+      "v2_end_index": 480,
+      "removed_extra_rows_vs_v1": 555,
+      "v1_minus_v2_end_strain": 0.57812625
+    }
+  ],
+  "legacy_reference_comparison": "Not performed: no R13/R15 expected-boundary file was specified. v1 results below are current PR-worktree function outputs only.",
+  "source_hashes": {
+    "manifest_sha256": "59e4b9ba1a560595890fcdaffaa10392d999e22cd7f147d3d9aa3759b543616e",
+    "corpus_sha256": "5e36230067d396bf8b41d53e26803e180f313e5d80e495c153b34384f15a97fc"
+  },
+  "notes": [
+    "Frozen 198-case terminal results only; no terminal plugin was re-invoked.",
+    "50% is the configured model-domain cap, not a universal physical validity boundary.",
+    "No tear, fracture, or material-model validity adjudication is made."
+  ],
+  "invariant_errors": []
+}

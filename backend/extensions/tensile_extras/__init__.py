@@ -23,6 +23,7 @@ from . import (  # noqa: F401  (card 는 import 만으로 블록·렌더러를 �
     ratio,
     temperature,
     terminal_domain,
+    terminal_domain_v2,
 )
 
 register(
@@ -77,23 +78,42 @@ register(
             name="policy",
             label="말단 구간 정책",
             type="choice",
-            choices=terminal_domain.POLICIES,
-            default=terminal_domain.AUTO_POLICY,
+            choices=(
+                terminal_domain_v2.AUTO_POLICY,
+                terminal_domain_v2.MANUAL_STRAIN_POLICY,
+                terminal_domain.AUTO_POLICY,
+                terminal_domain.MANUAL_POLICY,
+            ),
+            default=terminal_domain_v2.AUTO_POLICY,
             choice_labels={
-                terminal_domain.AUTO_POLICY: "말단 하중 소실 자동 검토",
-                terminal_domain.MANUAL_POLICY: "검토한 끝 행 직접 지정",
+                terminal_domain_v2.AUTO_POLICY: "급락 검토 + 공칭변형률 0.50 상한",
+                terminal_domain_v2.MANUAL_STRAIN_POLICY: "끝 공칭변형률 직접 지정",
+                terminal_domain.AUTO_POLICY: "말단 하중 소실 자동 검토 (이전 정책)",
+                terminal_domain.MANUAL_POLICY: "검토한 끝 행 직접 지정 (이전 정책)",
             },
             choice_help={
+                terminal_domain_v2.AUTO_POLICY: (
+                    "공칭변형률 0.50 (50%)를 넘는 첫 행 전까지 유지합니다. 그 안에서만 "
+                    "보수적인 급락 후보를 검토하며, 이후 원자료 전체에서 회복도 확인합니다."
+                ),
+                terminal_domain_v2.MANUAL_STRAIN_POLICY: (
+                    "입력한 끝 공칭변형률까지 원래 행 순서의 연속 prefix를 유지합니다. "
+                    "예: 0.50은 50%, 0.80은 80%이며 보간하지 않습니다."
+                ),
                 terminal_domain.AUTO_POLICY: (
-                    "진행축의 마지막 10% 안에서 급격하고 회복되지 않는 하중 소실만 제외합니다."
+                    "저장된 v1 recipe 재실행용 이전 정책입니다. 진행축의 마지막 10% 안에서 "
+                    "급격하고 회복되지 않는 하중 소실만 제외합니다."
                 ),
                 terminal_domain.MANUAL_POLICY: (
-                    "현재 입력 프레임의 0부터 세는 마지막 포함 행을 직접 지정합니다."
+                    "저장된 v1 recipe 재실행용 이전 정책입니다. 현재 입력 프레임의 0부터 세는 "
+                    "마지막 포함 행을 직접 지정합니다."
                 ),
             },
             help=(
-                "자동은 마지막 10%의 급격한 비회복 소실만 제외하고, 수동은 검토한 현재 입력 "
-                "프레임의 마지막 포함 행을 직접 지정합니다."
+                "새 기본 자동 정책은 공칭변형률 0.50 (50%) 상한과 보수적인 급락 검토를 함께 "
+                "적용합니다. 수동 정책은 지정한 끝 공칭변형률까지 유지합니다. "
+                "이전 정책은 저장된 "
+                "recipe 재실행용으로 남아 있습니다."
             ),
         ),
         ParamSpec(
@@ -103,6 +123,20 @@ register(
             required=True,
             when={"policy": (terminal_domain.MANUAL_POLICY,)},
             help="검토한 현재 입력 프레임 행 위치. 해당 행까지 포함하고 뒤 행은 모두 뺍니다.",
+        ),
+        ParamSpec(
+            name="end_strain",
+            label="끝 공칭변형률",
+            type="float",
+            unit="1",
+            dimension="strain",
+            default=terminal_domain_v2.DEFAULT_END_STRAIN,
+            required=True,
+            when={"policy": (terminal_domain_v2.MANUAL_STRAIN_POLICY,)},
+            help=(
+                "양의 공칭변형률 경계. 0.50은 50%, 0.80은 80%입니다. 경계와 같은 행은 "
+                "포함하고, 처음 경계를 넘은 행부터 뒤는 모두 제외합니다."
+            ),
         ),
         ParamSpec(
             name="strain",
@@ -126,9 +160,11 @@ register(
             label="시간 열",
             type="str",
             role="column",
+            default=terminal_domain.DEFAULT_TIME,
+            required=False,
             unit="s",
             help=(
-                "비우면 'time' 열이 있을 때 초 단위로 확인해 씁니다. 선택한 열이 없거나 "
+                "기본 'time' 열이 있으면 초 단위로 자동 확인해 씁니다. 선택한 열이 없거나 "
                 "유효하지 않으면 변형률 또는 행 순서로 대체합니다."
             ),
         ),
@@ -162,7 +198,10 @@ register(
             key="terminal_domain_decision_code",
             label="말단 결정 코드",
             si_unit="1",
-            help="0은 자동 무절단, 1은 자동 제외, 2는 수동 끝 행 적용입니다.",
+            help=(
+                "0은 자동 무절단, 1은 자동 급락 경계, 2는 수동 경계, 3은 자동 공칭변형률 "
+                "상한입니다. 이전 수동 정책의 2는 수동 끝 행을 뜻합니다."
+            ),
         ),
         Produced(
             key="terminal_domain_strain_strict",
@@ -178,10 +217,28 @@ register(
                 "단계 설명에 있습니다."
             ),
         ),
+        Produced(
+            key="terminal_domain_v2_end_reason_code",
+            label="v2 끝 선택 사유 코드",
+            si_unit="1",
+            help="0은 제외 없음, 1은 지원된 급락, 2는 자동 상한, 3은 수동 변형률 경계입니다.",
+        ),
+        Produced(
+            key="terminal_domain_v2_end_strain_bound",
+            label="v2 끝 공칭변형률 경계",
+            si_unit="1",
+            help="자동은 고정 0.50, 수동은 입력한 끝 공칭변형률입니다.",
+        ),
+        Produced(
+            key="terminal_domain_v2_loss_candidate_index",
+            label="v2 급락 후보 유지 행",
+            si_unit="1",
+            help="지원된 급락 후보의 유지 행. 후보가 없으면 -1입니다.",
+        ),
     ),
-    order=20,
-    version="1",
-)(terminal_domain.terminal_domain)
+    order=15,
+    version="2",
+)(terminal_domain_v2.terminal_domain)
 register(
     id="tensile.temperature_family",
     kind="grouping",
