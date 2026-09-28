@@ -93,3 +93,11 @@ detected loss.`”)를 이 README와 코드에 자립적으로 적었다.
 확장 패키지의 `__init__.py`를 직접 import해 중복 등록하지 않도록
 `matcore.extensions.load()` 경로로 등록해야 한다. 생성 문서와 플랫폼 시험 경로는
 이 확장 소유 범위에서 고치지 않는다.
+
+## 실제 시험 5개 비교
+
+실제 인장 시험 5개의 전체 원곡선과 말단 처리 전후 계산을
+[한국어 보고서](reports/five_case_processing/report.md)와
+[4쪽 PDF](reports/five_case_processing/pdf/tensile-processing-five-cases.pdf)에서 비교할 수 있다.
+PC1·PC5의 자동 근사와 BT3의 취득 순서 검증은 별도 후속 개발본의 비교다.
+이 PR에 포함된 변경은 선택형 말단 제외이며, 전체 탄소성 계산이나 물성카드 검증 완료를 뜻하지 않는다.
