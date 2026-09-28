@@ -98,7 +98,7 @@ def test_default_auto_keeps_exact_bound_and_never_reenters_after_first_exceedanc
     for key, original in before.items():
         np.testing.assert_array_equal(frame.columns[key], original)
         np.testing.assert_array_equal(stage.frame.columns[key], original[:4])
-    assert "최종 선택 행 0~3 포함" in "\n".join(stage.notes)
+    assert "0번부터 3번 행까지 사용했습니다." in "\n".join(stage.notes)
 
 
 def test_supported_early_drop_with_long_low_tail_precedes_the_strain_cap() -> None:
@@ -113,7 +113,7 @@ def test_supported_early_drop_with_long_low_tail_precedes_the_strain_cap() -> No
     assert values["terminal_domain_decision_code"] == 1.0
     assert values["terminal_domain_v2_end_reason_code"] == 1.0
     assert values["terminal_domain_v2_loss_candidate_index"] == 29.0
-    assert "조기 급락 적용" in "\n".join(result.stages[-1].notes)
+    assert "자동으로 하중 급락을 감지했습니다." in "\n".join(result.stages[-1].notes)
 
 
 def test_recovery_after_strain_cap_vetoes_an_early_drop_using_full_source_suffix() -> None:
@@ -128,7 +128,7 @@ def test_recovery_after_strain_cap_vetoes_an_early_drop_using_full_source_suffix
     assert values["terminal_domain_end_index"] == 49.0
     assert values["terminal_domain_decision_code"] == 3.0
     assert values["terminal_domain_v2_loss_candidate_index"] == -1.0
-    assert "전체 suffix" in notes
+    assert "전체 입력 데이터에서 확인했습니다." in notes
 
 
 def test_loss_after_the_cap_does_not_replace_or_block_the_cap() -> None:
@@ -203,7 +203,10 @@ def test_ambiguous_gap_inside_candidate_support_is_rejected() -> None:
     stress = [100.0] * 6 + [0.0] * 5
     frame = _frame(stress, time=time)
 
-    with pytest.raises(ProcessingError, match="ambiguous_sampling_gap"):
+    with pytest.raises(
+        ProcessingError,
+        match="관측만으로 급락 위치를 확인할 수 없어 자동 제외를 보류합니다",
+    ):
         _run(frame)
 
 
@@ -226,8 +229,11 @@ def test_ordinal_progress_skips_early_detection_and_records_the_reason() -> None
 
     assert result.frame.length() == 8
     notes = "\n".join(result.stages[-1].notes)
-    assert "진행축 코드" not in notes
-    assert "조기 급락 탐지는 실제 시간·변형률 진행축이 없어 건너뛰었습니다" in notes
+    assert "시험 순서 확인 기준 코드" not in notes
+    assert (
+        "실제 시간이나 계속 증가하는 변형률을 사용할 수 없어 중간 급락은 판정하지 않았습니다"
+        in notes
+    )
 
 
 def test_manual_strain_eight_tenths_includes_boundary_without_interpolation() -> None:
@@ -268,7 +274,7 @@ def test_manual_strain_rejects_nonpositive_nonfinite_or_nonreal_bound(bound: obj
 
 def test_fewer_than_two_point_manual_prefix_is_rejected() -> None:
     frame = _frame([100.0] * 5, strain=[0.0, 0.6, 0.7, 0.8, 0.9])
-    with pytest.raises(ProcessingError, match="2점 미만"):
+    with pytest.raises(ProcessingError, match="처리할 데이터가 2개 미만"):
         _run(frame, {"policy": MANUAL_POLICY, "end_strain": 0.5})
 
 

@@ -97,12 +97,16 @@ def _gap_in_rows_error(
             step > legacy.FIXED_OPTIONS["gap_interval_ratio"] * local
             and step > legacy.FIXED_OPTIONS["gap_progress_fraction"]
         ):
+            context_label = (
+                "급락 후보 앞의 하중 확인 구간"
+                if context == "지지 구간"
+                else "급락 뒤의 연결 구간"
+            )
             return ProcessingError(
-                "ambiguous_sampling_gap: "
-                f"후보 유지 행 {candidate} 의 {context}에서 입력 행 {row - 1}→{row} 진행 간격 "
-                f"{step:.6g} 이 직전 간격 중앙값 {local:.6g} 의 10배 초과이며 "
-                "전체 진행 폭의 1%보다 큽니다. 급락 위치를 관측만으로 정할 수 없어 "
-                "자동 자르기를 보류합니다."
+                f"급락 후보 {candidate}번 행의 {context_label}에서 입력 행 {row - 1}→{row} "
+                f"사이 간격 {step:.6g}이 직전 간격 중앙값 {local:.6g}의 10배를 넘고 "
+                "전체 시험 구간의 1%보다 큽니다. 관측만으로 급락 위치를 확인할 수 없어 "
+                "자동 제외를 보류합니다."
             )
     return None
 
@@ -131,13 +135,40 @@ def _notes_for_loss(
 ) -> tuple[str, ...]:
     first_loss_fraction = float((stress[index] - stress[index + 1]) / local)
     total_loss_fraction = float((stress[index] - stress[end]) / local)
-    label = "조기 급락" if early else "후반 급락"
     return (
-        f"{label} 적용; 유지 행 {index}, 첫 제외 행 {index + 1}, 마지막 저하중 연결 행 {end}.",
-        f"후보 행 응력 {stress[index]:.6g} Pa, 첫 제외 응력 {stress[index + 1]:.6g} Pa, "
-        f"끝 연결 응력 {stress[end]:.6g} Pa, 국소 기준 L={local:.6g} Pa, "
-        f"첫 손실/L={first_loss_fraction:.6g}, 총 손실/L={total_loss_fraction:.6g}.",
+        f"자동으로 하중 급락을 감지했습니다. {index}번 행까지 사용하고, "
+        f"{index + 1}번 행부터 제외했습니다.",
+        f"급락 전 응력 {stress[index]:.6g} Pa, 첫 제외 행 응력 {stress[index + 1]:.6g} Pa, "
+        f"급락 확인 구간의 마지막 응력 {stress[end]:.6g} Pa, "
+        f"기준 응력 {local:.6g} Pa, 기준 응력 대비 첫 감소율={first_loss_fraction:.6g}, "
+        f"기준 응력 대비 전체 감소율={total_loss_fraction:.6g}.",
     )
+
+
+def _progress_notes_for_v2(
+    basis: str, reason: str | None, strain_strict: bool
+) -> tuple[str, ...]:
+    if basis == "time":
+        notes = ["초 단위 시간으로 시험의 순서를 확인했습니다."]
+    elif basis == "strain":
+        notes = ["시간을 사용할 수 없어 계속 증가하는 변형률로 시험의 순서를 확인했습니다."]
+    else:
+        notes = [
+            "시간이나 계속 증가하는 변형률을 사용할 수 없어 "
+            "원래 데이터 행 순서로 확인했습니다. "
+            "행 순서는 실제 시간이나 변형률 간격을 나타내지 않습니다."
+        ]
+    if reason:
+        readable_reason = reason.replace("시간 진행축", "시간 기준").replace(
+            "0~1 진행축", "정규화된 순서 기준"
+        )
+        readable_reason = readable_reason.replace(
+            "행 순서를 진행축으로 사용했습니다.", "행 순서만으로 순서를 확인했습니다."
+        )
+        notes.append(readable_reason)
+    if not strain_strict:
+        notes.append("변형률은 원래 행 순서에서 계속 증가하지 않습니다.")
+    return tuple(notes)
 
 
 def _v1_recovery_veto(stress: np.ndarray, index: int, end: int) -> bool:
@@ -224,10 +255,8 @@ def _late_candidate(
     )
     if stable_loaded:
         raise ProcessingError(
-            "ambiguous_stable_low_suffix: "
-            f"후보 유지 행 {index} 뒤에 진행 폭 {remaining:.6g} 의 "
-            "안정된 하중 구간이 남습니다. "
-            "의도된 하측 모델 구간일 수 있어 자동 자르기를 보류합니다."
+            f"급락 후보 {index}번 행 뒤에도 전체 시험 구간의 {remaining:.6g}가량에 걸쳐 "
+            "안정된 하중이 이어집니다. 계속 하중을 받는 구간일 수 있어 자동 제외를 보류합니다."
         )
     return end, local
 
@@ -251,8 +280,9 @@ def _automatic_loss_end(
             return index, _notes_for_loss(stress, index, end, local, early=True), False
     else:
         early_notes.append(
-            "조기 급락 탐지는 실제 시간·변형률 진행축이 없어 건너뛰었습니다; "
-            "행 순서는 간격을 증명하지 않습니다."
+            "실제 시간이나 계속 증가하는 변형률을 사용할 수 없어 "
+            "중간 급락은 판정하지 않았습니다. "
+            "행 순서만으로는 실제 측정 간격을 알 수 없습니다."
         )
 
     for index in range(legacy.FIXED_OPTIONS["minimum_support_rows"] - 1, candidate_max + 1):
@@ -283,12 +313,12 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
     cap_end = _cap_end(strain, bound)
     if cap_end < 1:
         raise ProcessingError(
-            f"공칭변형률 {bound:.6g} 이하에서 유지할 수 있는 연속 prefix가 2점 미만입니다."
+            f"공칭변형률 상한 {bound:.6g} 이하에서 처리할 데이터가 2개 미만입니다."
         )
     progress, basis, fallback_reason = legacy._progress(
         arrays, frame, strain, strain_name, time_name
     )
-    progress_notes = legacy._progress_notes(basis, fallback_reason, strain_strict)
+    progress_notes = _progress_notes_for_v2(basis, fallback_reason, strain_strict)
 
     loss_end: int | None = None
     automatic_notes: tuple[str, ...] = ()
@@ -301,39 +331,47 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
         if loss_end is not None and loss_end <= cap_end:
             decision_code = 1.0
             reason_code = 1.0
-            reason = "지원된 급락 경계가 선택되었습니다."
+            reason = "정해진 급락 기준을 충족해 급락 직전 행을 선택했습니다."
         elif cap_end < n - 1:
             decision_code = 3.0
             reason_code = 2.0
-            reason = "고정 공칭변형률 상한이 선택되었습니다."
+            reason = "자동 정책의 변형률 상한을 적용했습니다."
         else:
             decision_code = 0.0
             reason_code = 0.0
-            reason = "급락과 공칭변형률 상한에 따른 제외가 없습니다."
+            reason = "급락 기준이나 변형률 상한에 따른 제외가 없습니다."
     else:
         end_index = cap_end
         decision_code = 2.0
         reason_code = 3.0
-        reason = "사용자가 지정한 끝 공칭변형률 경계가 선택되었습니다."
+        reason = "지정한 변형률 상한을 적용했습니다."
 
     selected = frame if end_index == n - 1 else frame.select(np.arange(end_index + 1))
     removed = n - end_index - 1
-    notes: list[str] = [f"정책 {policy}.", *progress_notes]
+    policy_label = {
+        AUTO_POLICY: "자동 (급락 감지·변형률 제한)",
+        MANUAL_STRAIN_POLICY: "수동 (변형률 상한 지정)",
+    }[policy]
+    notes: list[str] = [f"처리 방식: {policy_label}.", *progress_notes]
     if policy == AUTO_POLICY:
-        notes.append(f"고정 상한 공칭변형률 {bound:.6g} (50% 기본 상한).")
+        notes.append(
+            f"자동 정책의 변형률 상한은 {bound:.6g} (50%)입니다. "
+            "50%는 보편적인 파단 기준이 아닙니다."
+        )
         if automatic_notes:
             notes.extend(automatic_notes)
         if loss_end is not None and loss_end > cap_end:
             notes.append(
-                f"급락 후보 행 {loss_end} 는 상한 경계 {cap_end} 뒤여서 "
-                "선택 결과에 영향을 주지 않았습니다."
+                f"급락 후보 {loss_end}번 행의 확인 구간은 변형률 상한 뒤에 있어 "
+                "끝 위치에 반영되지 않았습니다."
             )
         if reason_code == 2.0:
             notes.append(
-                f"상한 초과 첫 행 {cap_end + 1} 부터 끝까지 {removed}개 행을 제외했습니다."
+                f"변형률 상한을 처음 넘은 {cap_end + 1}번 행부터 "
+                f"뒤의 데이터 {removed}개를 제외했습니다."
             )
         elif reason_code == 0.0:
-            notes.append(f"모든 {n}개 행을 유지했습니다.")
+            notes.append(f"입력 데이터 {n}개를 모두 사용했습니다.")
         if unresolved:
             first_late = int(
                 np.searchsorted(
@@ -341,71 +379,72 @@ def _terminal_domain_v2(frame: Frame, options: dict[str, Any], policy: str) -> S
                 )
             )
             notes.append(
-                "gradual_tail_unresolved; 마지막 진행축 10% 구간 첫 응력 "
-                f"{stress[first_late]:.6g} Pa 에서 끝 응력 {stress[-1]:.6g} Pa 까지 "
-                "양의 원응력 최댓값의 10% 이상 감소했지만 "
-                "자동 급락 기준을 만족하지 않았습니다."
+                "시험 순서의 마지막 10%에서 첫 응력 "
+                f"{stress[first_late]:.6g} Pa 에서 마지막 응력 {stress[-1]:.6g} Pa 까지 "
+                "전체 최대 응력의 10% 이상 낮아졌습니다. 완만한 감소는 급락 기준에 미치지 "
+                "않았습니다. 변형률 상한은 별도로 적용합니다."
             )
     else:
-        notes.append(f"수동 끝 공칭변형률 {bound:.6g}.")
+        notes.append(f"지정한 변형률 상한은 {bound:.6g}입니다.")
         if cap_end < n - 1:
             notes.append(
-                f"상한 초과 첫 행 {cap_end + 1} 부터 끝까지 {removed}개 행을 제외했습니다."
+                f"변형률 상한을 처음 넘은 {cap_end + 1}번 행부터 "
+                f"뒤의 데이터 {removed}개를 제외했습니다."
             )
         else:
-            notes.append(f"모든 {n}개 행을 유지했습니다.")
-    notes.append(f"최종 선택 행 0~{end_index} 포함; {reason}")
+            notes.append(f"입력 데이터 {n}개를 모두 사용했습니다.")
+    notes.append(f"0번부터 {end_index}번 행까지 사용했습니다. {reason}")
     if policy == AUTO_POLICY:
         notes.append(
-            "상한 뒤를 포함해 원자료 전체 suffix에서 회복 여부를 확인했습니다. "
-            "말단 구간 선택은 모델용 범위이며 네킹이나 파단을 판정하지 않습니다."
+            "하중 회복 여부는 변형률 상한 뒤를 포함해 전체 입력 데이터에서 확인했습니다. "
+            "이 처리는 사용할 데이터 범위를 정하며 네킹이나 파단을 판정하지 않습니다."
         )
     else:
-        notes.append("말단 구간 선택은 모델용 범위이며 네킹이나 파단을 판정하지 않습니다.")
+        notes.append(
+            "이 처리는 사용할 데이터 범위를 정하며 네킹이나 파단을 판정하지 않습니다."
+        )
 
     scalar_values = (
-        Scalar(
-            "terminal_domain_end_index", "모델 구간 끝 행 위치 (0부터)", float(end_index), "1"
-        ),
+        Scalar("terminal_domain_end_index", "절단 위치 (행 번호)", float(end_index), "1"),
         Scalar(
             "terminal_domain_end_strain",
-            "모델 구간 끝 변형률",
+            "종료점 변형률",
             float(strain[end_index]),
             "1",
             "strain",
         ),
-        Scalar("terminal_domain_removed_points", "제외한 말단 점 수", float(removed), "1"),
-        Scalar("terminal_domain_input_points", "입력 점 수", float(n), "1"),
-        Scalar("terminal_domain_input_end_load", "입력 끝 응력", float(stress[-1]), "Pa"),
-        Scalar("terminal_domain_decision_code", "말단 결정 코드", decision_code, "1"),
+        Scalar("terminal_domain_removed_points", "제외한 데이터 수", float(removed), "1"),
+        Scalar("terminal_domain_input_points", "입력 데이터 수", float(n), "1"),
+        Scalar(
+            "terminal_domain_input_end_load", "처리 전 마지막 응력", float(stress[-1]), "Pa"
+        ),
+        Scalar("terminal_domain_decision_code", "끝단 처리 결과 코드", decision_code, "1"),
         Scalar(
             "terminal_domain_strain_strict",
-            "입력 변형률 엄격 증가 여부",
+            "변형률의 원래 순서 증가 여부",
             float(strain_strict),
             "1",
         ),
         Scalar(
             "terminal_domain_progress_basis_code",
-            "진행축 코드",
+            "시험 순서 확인 기준 코드",
             {"ordinal": 0.0, "strain": 1.0, "time": 2.0}[basis],
             "1",
         ),
         Scalar(
             "terminal_domain_v2_end_reason_code",
-            "모델 구간 끝 선택 사유 코드",
+            "끝 위치를 정한 이유 코드",
             reason_code,
             "1",
         ),
-        Scalar(
-            "terminal_domain_v2_end_strain_bound", "설정한 끝 공칭변형률", float(bound), "1"
-        ),
+        Scalar("terminal_domain_v2_end_strain_bound", "적용한 변형률 상한", float(bound), "1"),
         Scalar(
             "terminal_domain_v2_loss_candidate_index",
-            "지원된 급락 후보 유지 행",
+            "급락 직전 행 번호",
             float(loss_end) if loss_end is not None else -1.0,
             "1",
         ),
     )
     if not all(np.isfinite(scalar.value) for scalar in scalar_values):
-        raise ProcessingError("말단 구간 진단값이 유한하지 않습니다.")
+        raise ProcessingError("끝단 처리 진단값을 만들 수 없습니다.")
     return StepResult(frame=selected, notes=tuple(notes), scalars=scalar_values)
