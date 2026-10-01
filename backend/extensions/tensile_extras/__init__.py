@@ -23,6 +23,8 @@ from . import (  # noqa: F401  (card·deck 은 import 만으로 블록·렌더�
     deck,
     ratio,
     temperature,
+    terminal_domain,
+    terminal_domain_v2,
 )
 
 register(
@@ -66,6 +68,171 @@ register(
     version="1",
 )(ratio.yield_ratio)
 
+register(
+    id="tensile.terminal_domain",
+    kind="processing",
+    label="끝단 처리",
+    applies_to=("tensile",),
+    requires_channels=(("displacement",), ("force",)),
+    params=(
+        ParamSpec(
+            name="policy",
+            label="처리 방식",
+            type="choice",
+            choices=(
+                terminal_domain_v2.AUTO_POLICY,
+                terminal_domain_v2.MANUAL_STRAIN_POLICY,
+            ),
+            default=terminal_domain_v2.AUTO_POLICY,
+            choice_labels=terminal_domain_v2.POLICY_LABELS,
+            choice_help={
+                terminal_domain_v2.AUTO_POLICY: (
+                    "공칭변형률 제한 0.50 (50%)으로 사용 범위를 정합니다. 그 안의 급락 기준을 "
+                    "충족하면 급락 직전까지 사용합니다. 회복 여부는 제한 뒤를 포함한 원자료 "
+                    "전체에서 확인합니다. 50%는 보편적인 파단 기준이 아닙니다."
+                ),
+                terminal_domain_v2.MANUAL_STRAIN_POLICY: (
+                    "공칭변형률 제한은 기본 0.50 (50%)이며 변경할 수 있고(예: 0.80은 80%), "
+                    "처음 제한을 넘는 행부터 뒤를 제외하며 수동 방식에는 자동 급락 감지를 "
+                    "적용하지 않습니다."
+                ),
+            },
+            help=(
+                "자동은 공칭변형률 제한 0.50 (50%)으로 범위를 정하고 "
+                "그 안의 급락을 확인합니다. 수동은 기본 0.50인 공칭변형률 "
+                "제한을 직접 지정합니다. 수동 방식에는 자동 급락 감지를 "
+                "적용하지 않습니다. 50%는 보편적인 파단 기준이 아닙니다."
+            ),
+        ),
+        ParamSpec(
+            name="end_strain",
+            label="변형률 제한",
+            type="float",
+            unit="1",
+            dimension="strain",
+            default=terminal_domain_v2.DEFAULT_END_STRAIN,
+            required=True,
+            when={"policy": (terminal_domain_v2.MANUAL_STRAIN_POLICY,)},
+            help=(
+                "실험 치수로 계산한 공칭변형률 제한입니다. 기본값은 0.50 (50%)이며 변경할 수 "
+                "있습니다. 처음 제한을 넘는 행부터 뒤는 제외합니다. "
+                "예를 들어 0.80은 80%입니다. 수동 방식에는 자동 급락 감지를 적용하지 않습니다."
+            ),
+        ),
+        ParamSpec(
+            name="strain",
+            label="변형률 열",
+            type="str",
+            role="column",
+            default=terminal_domain.DEFAULT_STRAIN,
+            unit="1",
+            dimension="strain",
+            help="앞 단계 공칭 응력-변형률 계산에서 생성한 공칭변형률 열입니다.",
+        ),
+        ParamSpec(
+            name="stress",
+            label="응력 열",
+            type="str",
+            role="column",
+            default=terminal_domain.DEFAULT_STRESS,
+            unit="Pa",
+            help="앞 단계 공칭 응력-변형률 계산에서 생성한 공칭응력 열입니다.",
+        ),
+        ParamSpec(
+            name="time",
+            label="시간 열",
+            type="str",
+            role="column",
+            default=terminal_domain.DEFAULT_TIME,
+            required=False,
+            unit="s",
+            help=(
+                "기본 'time' 열이 있으면 초 단위인지 확인해 사용합니다. 선택한 열이 없거나 "
+                "값 또는 단위가 유효하지 않으면 변형률 또는 행 순서로 대체하고 "
+                "이유를 기록합니다."
+            ),
+        ),
+    ),
+    makes_values=(
+        Produced(
+            key="terminal_domain_end_index",
+            label="절단 위치 (행 번호)",
+            si_unit="1",
+            help=(
+                "결과에 포함한 마지막 행 번호입니다. 해당 행도 포함하며, "
+                "행 번호는 0부터 시작합니다."
+            ),
+        ),
+        Produced(
+            key="terminal_domain_end_strain",
+            label="종료점 변형률",
+            si_unit="1",
+            help="결과에 포함한 마지막 행의 공칭변형률입니다.",
+        ),
+        Produced(
+            key="terminal_domain_removed_points",
+            label="제외한 데이터 수",
+            si_unit="1",
+            help="현재 입력 데이터에서 제외한 행 수입니다.",
+        ),
+        Produced(key="terminal_domain_input_points", label="입력 데이터 수", si_unit="1"),
+        Produced(
+            key="terminal_domain_input_end_load",
+            label="처리 전 마지막 응력",
+            si_unit="Pa",
+        ),
+        Produced(
+            key="terminal_domain_decision_code",
+            label="끝단 처리 결과 코드",
+            si_unit="1",
+            help=(
+                "0은 제외 없음, 1은 자동 급락 제외, 2는 수동 끝 지정, "
+                "3은 자동 변형률 제한입니다."
+            ),
+        ),
+        Produced(
+            key="terminal_domain_strain_strict",
+            label="변형률의 원래 순서 증가 여부",
+            si_unit="1",
+        ),
+        Produced(
+            key="terminal_domain_progress_basis_code",
+            label="시험 순서 확인 기준 코드",
+            si_unit="1",
+            help=(
+                "0은 데이터 행 순서, 1은 변형률, 2는 초 단위 시간입니다. "
+                "시간 열이나 변형률을 사용할 수 "
+                "없었던 이유는 단계 설명에 기록됩니다."
+            ),
+        ),
+        Produced(
+            key="terminal_domain_v2_end_reason_code",
+            label="끝 위치를 정한 이유 코드",
+            si_unit="1",
+            help=(
+                "0은 제외 없음, 1은 급락 기준 적용, 2는 자동 변형률 제한, "
+                "3은 수동 변형률 제한입니다."
+            ),
+        ),
+        Produced(
+            key="terminal_domain_v2_end_strain_bound",
+            label="적용한 변형률 제한",
+            si_unit="1",
+            help="자동은 고정 0.50, 수동은 입력한 변형률 제한입니다.",
+        ),
+        Produced(
+            key="terminal_domain_v2_loss_candidate_index",
+            label="급락 직전 행 번호",
+            si_unit="1",
+            help=(
+                "급락 기준을 적용했을 때 제외 시작 행 바로 전의 0부터 세는 행 번호입니다. "
+                "급락을 적용하지 않으면 -1입니다."
+            ),
+        ),
+    ),
+    order=15,
+    version="2",
+)(terminal_domain_v2.terminal_domain)
 register(
     id="tensile.temperature_family",
     kind="grouping",
